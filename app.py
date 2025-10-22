@@ -170,10 +170,27 @@ if st.session_state.reservations_df is not None:
     else:
         st.info(f"Selected period: {(end_date - start_date).days + 1} days")
 
+    # Period length selector
+    st.subheader("Period Configuration")
+    period_length = st.selectbox(
+        "Period length",
+        options=[1, 2, 3, 4],
+        index=2,  # Default to 3 days
+        format_func=lambda x: f"{x} day" if x == 1 else f"{x} days",
+        help="Choose how many days each period should cover in the report"
+    )
+
+    if period_length == 1:
+        st.info("Report will show daily availability")
+    else:
+        estimated_periods = ((end_date - start_date).days + 1) // period_length + 1
+        st.info(f"Report will show approximately {estimated_periods} periods of {period_length} days each")
+
 else:
     st.warning("Please upload reservations file first to select date range")
     start_date = None
     end_date = None
+    period_length = 3  # Default
 
 st.divider()
 
@@ -187,7 +204,7 @@ if st.session_state.merged_df is not None and start_date is not None and end_dat
                 # Generate periods
                 progress_bar = st.progress(0)
                 st.text("Generating date periods...")
-                periods = generate_periods(start_date, end_date, period_days=3)
+                periods = generate_periods(start_date, end_date, period_days=period_length)
                 monthly_periods = generate_monthly_periods(start_date, end_date)
                 progress_bar.progress(30)
 

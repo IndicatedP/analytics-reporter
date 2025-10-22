@@ -41,9 +41,12 @@ def check_overlap(
     """
     Check if a reservation overlaps with a period.
 
+    Note: Check-out dates are EXCLUSIVE (guest leaves that day, apartment is available).
+    So a reservation from Oct 21 to Oct 25 means the guest occupies Oct 21, 22, 23, 24 only.
+
     Args:
-        res_start: Reservation start date
-        res_end: Reservation end date
+        res_start: Reservation start date (inclusive)
+        res_end: Reservation end date (exclusive - check-out day, apartment becomes available)
         period_start: Period start date
         period_end: Period end date
 
@@ -51,8 +54,9 @@ def check_overlap(
         True if there is overlap, False otherwise
     """
     # Reservations overlap if:
-    # reservation starts before period ends AND reservation ends after period starts
-    return not (res_end < period_start or res_start > period_end)
+    # reservation starts before or on period end AND reservation ends after period start
+    # Since check-out date is exclusive, we use <= instead of < for res_end
+    return not (res_end <= period_start or res_start > period_end)
 
 
 def get_availability_status(
