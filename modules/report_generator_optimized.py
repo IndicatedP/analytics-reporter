@@ -9,6 +9,7 @@ from openpyxl.utils import get_column_letter
 from typing import List, Dict
 from io import BytesIO
 from functools import lru_cache
+import re
 
 from modules.period_generator import Period, MonthPeriod, group_periods_by_month
 from modules.availability_engine import get_availability_status, calculate_monthly_occupancy
@@ -18,6 +19,83 @@ from modules.analytics import (
     format_category_label
 )
 from modules.availability_summary import calculate_availability_summary
+
+
+def get_base_apartment_name(apartment_name: str) -> str:
+    """
+    Extract base apartment name by removing letter suffixes like 'A', 'B', 'C'.
+
+    Examples:
+        '41 A - Star Wars' -> '41 - Star Wars'
+        '55 B - Marilyn' -> '55 - Marilyn'
+        '68 A - Rolling Stones' -> '68 - Rolling Stones'
+        '42 - Game of Thrones' -> '42 - Game of Thrones' (no change)
+
+    Args:
+        apartment_name: Full apartment name
+
+    Returns:
+        Base apartment name without letter suffix
+    """
+    # Pattern: number + space + single letter + space + dash
+    # Replace with: number + space + dash
+    pattern = r'(\d+)\s+[A-Z]\s+-'
+    replacement = r'\1 -'
+    base_name = re.sub(pattern, replacement, apartment_name)
+    return base_name
+
+
+def get_merged_availability(base_name: str, variant_names: List[str], period: Period,
+                            cache: 'ReportCache') -> str:
+    """
+    Get combined availability status for all variants of an apartment.
+
+    Args:
+        base_name: Base apartment name (without letter suffix)
+        variant_names: List of all variant apartment names (with A, B, C suffixes)
+        period: Period to check
+        cache: ReportCache for availability lookups
+
+    Returns:
+        Combined availability status (Disponible, Réservé, or Surbooking)
+    """
+    from modules.availability_engine import AvailabilityStatus
+
+    # Get availability for each variant
+    statuses = [cache.get_availability(variant, period) for variant in variant_names]
+
+    # Count how many are reserved or surbooking
+    reserved_count = sum(1 for s in statuses if s in [AvailabilityStatus.RESERVE, AvailabilityStatus.SURBOOKING])
+
+    # Determine combined status
+    if reserved_count == 0:
+        return AvailabilityStatus.DISPONIBLE
+    elif reserved_count == 1:
+        return AvailabilityStatus.RESERVE
+    else:  # Multiple variants are reserved
+        return AvailabilityStatus.SURBOOKING
+
+
+def get_merged_monthly_occupancy(variant_names: List[str], month_period: MonthPeriod,
+                                 periods: List[Period], reservations: pd.DataFrame) -> float:
+    """
+    Calculate average monthly occupancy across all variants of an apartment.
+
+    Args:
+        variant_names: List of all variant apartment names
+        month_period: Monthly period to calculate for
+        periods: List of all periods
+        reservations: Reservations dataframe
+
+    Returns:
+        Average occupancy percentage across all variants
+    """
+    occupancies = [
+        calculate_monthly_occupancy(variant, month_period, periods, reservations)
+        for variant in variant_names
+    ]
+    # Return average occupancy
+    return sum(occupancies) / len(occupancies) if occupancies else 0.0
 
 
 class ReportCache:
@@ -204,27 +282,48 @@ def create_owner_sheet_optimized(
 
     # Add apartment rows
     if merge_duplicates:
-        # Get unique apartment names (deduplicate)
-        unique_apartments = owner_apartments['Nom du logement'].unique()
-        apartments_to_process = sorted(unique_apartments)
+        # Group apartments by base name
+        apartment_groups = {}
+        for apt_name in owner_apartments['Nom du logement']:
+            base_name = get_base_apartment_name(apt_name)
+            if base_name not in apartment_groups:
+                apartment_groups[base_name] = []
+            apartment_groups[base_name].append(apt_name)
+
+        # Process each base apartment (merged)
+        for base_name in sorted(apartment_groups.keys()):
+            variant_names = apartment_groups[base_name]
+            row_data = [base_name]
+
+            for month_period, month_periods in grouped_periods:
+                for period in month_periods:
+                    status = get_merged_availability(base_name, variant_names, period, cache)
+                    row_data.append(status)
+
+                occupancy = get_merged_monthly_occupancy(
+                    variant_names, month_period, periods, reservations
+                )
+                row_data.append(f"{occupancy:.1f}%")
+
+            ws.append(row_data)
     else:
         # Process all rows separately (keep duplicates)
         apartments_to_process = owner_apartments['Nom du logement'].tolist()
 
-    for apartment_name in apartments_to_process:
-        row_data = [apartment_name]
+        for apartment_name in apartments_to_process:
+            row_data = [apartment_name]
 
-        for month_period, month_periods in grouped_periods:
-            for period in month_periods:
-                status = cache.get_availability(apartment_name, period)
-                row_data.append(status)
+            for month_period, month_periods in grouped_periods:
+                for period in month_periods:
+                    status = cache.get_availability(apartment_name, period)
+                    row_data.append(status)
 
-            occupancy = calculate_monthly_occupancy(
-                apartment_name, month_period, periods, reservations
-            )
-            row_data.append(f"{occupancy:.1f}%")
+                occupancy = calculate_monthly_occupancy(
+                    apartment_name, month_period, periods, reservations
+                )
+                row_data.append(f"{occupancy:.1f}%")
 
-        ws.append(row_data)
+            ws.append(row_data)
 
     # Format sheet (price rows + availability rows)
     num_summary_rows = len(categories) * 2  # Price rows + availability rows
@@ -305,27 +404,48 @@ def create_all_apartments_sheet_optimized(
 
     # Add apartment rows
     if merge_duplicates:
-        # Get unique apartment names (deduplicate)
-        unique_apartments = all_apartments['Nom du logement'].unique()
-        apartments_to_process = sorted(unique_apartments)
+        # Group apartments by base name
+        apartment_groups = {}
+        for apt_name in all_apartments['Nom du logement']:
+            base_name = get_base_apartment_name(apt_name)
+            if base_name not in apartment_groups:
+                apartment_groups[base_name] = []
+            apartment_groups[base_name].append(apt_name)
+
+        # Process each base apartment (merged)
+        for base_name in sorted(apartment_groups.keys()):
+            variant_names = apartment_groups[base_name]
+            row_data = [base_name]
+
+            for month_period, month_periods in grouped_periods:
+                for period in month_periods:
+                    status = get_merged_availability(base_name, variant_names, period, cache)
+                    row_data.append(status)
+
+                occupancy = get_merged_monthly_occupancy(
+                    variant_names, month_period, periods, reservations
+                )
+                row_data.append(f"{occupancy:.1f}%")
+
+            ws.append(row_data)
     else:
         # Process all rows separately (keep duplicates)
         apartments_to_process = all_apartments['Nom du logement'].tolist()
 
-    for apartment_name in apartments_to_process:
-        row_data = [apartment_name]
+        for apartment_name in apartments_to_process:
+            row_data = [apartment_name]
 
-        for month_period, month_periods in grouped_periods:
-            for period in month_periods:
-                status = cache.get_availability(apartment_name, period)
-                row_data.append(status)
+            for month_period, month_periods in grouped_periods:
+                for period in month_periods:
+                    status = cache.get_availability(apartment_name, period)
+                    row_data.append(status)
 
-            occupancy = calculate_monthly_occupancy(
-                apartment_name, month_period, periods, reservations
-            )
-            row_data.append(f"{occupancy:.1f}%")
+                occupancy = calculate_monthly_occupancy(
+                    apartment_name, month_period, periods, reservations
+                )
+                row_data.append(f"{occupancy:.1f}%")
 
-        ws.append(row_data)
+            ws.append(row_data)
 
     # Format sheet (price rows + availability rows)
     num_summary_rows = len(categories) * 2  # Price rows + availability rows
