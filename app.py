@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from modules.data_loader import load_mapping_file, load_reservations_file, merge_data, DataLoaderError
 from modules.period_generator import generate_periods, generate_monthly_periods
-from modules.report_generator import create_report, save_to_bytes
+from modules.report_generator_optimized import create_report_optimized, save_to_bytes
 
 
 # Page config
@@ -198,34 +198,53 @@ st.divider()
 st.header("Step 4: Generate Report")
 
 if st.session_state.merged_df is not None and start_date is not None and end_date is not None:
+    # Add performance warning
+    if period_length == 1:
+        total_days = (end_date - start_date).days + 1
+        if total_days > 60:
+            st.warning(f"⚠️ Daily periods for {total_days} days will create {total_days} columns. This may take 2-3 minutes to generate. Consider using 3-4 day periods for faster results.")
+
     if st.button("🔄 Generate Report", type="primary", use_container_width=True):
         try:
-            with st.spinner("Generating report... This may take a moment."):
-                # Generate periods
-                progress_bar = st.progress(0)
-                st.text("Generating date periods...")
-                periods = generate_periods(start_date, end_date, period_days=period_length)
-                monthly_periods = generate_monthly_periods(start_date, end_date)
-                progress_bar.progress(30)
+            # Generate periods
+            progress_bar = st.progress(0)
+            progress_text = st.empty()
 
-                st.text(f"Creating report with {len(periods)} periods and {len(monthly_periods)} months...")
+            progress_text.text("Generating date periods...")
+            periods = generate_periods(start_date, end_date, period_days=period_length)
+            monthly_periods = generate_monthly_periods(start_date, end_date)
+            progress_bar.progress(20)
 
-                # Create report
-                wb = create_report(
-                    st.session_state.merged_df,
-                    st.session_state.mapping_df,
-                    periods,
-                    monthly_periods
-                )
-                progress_bar.progress(90)
+            num_apartments = len(st.session_state.mapping_df)
+            num_periods = len(periods)
 
-                # Save to bytes
-                st.text("Preparing download...")
-                buffer = save_to_bytes(wb)
-                st.session_state.report_buffer = buffer
-                st.session_state.report_generated = True
-                progress_bar.progress(100)
+            progress_text.text(f"Creating report: {num_apartments} apartments × {num_periods} periods...")
 
+            # Progress callback
+            def update_progress(current, total, message):
+                progress = 20 + int((current / total) * 70)  # 20% to 90%
+                progress_bar.progress(progress)
+                progress_text.text(f"{message} ({current}/{total})")
+
+            # Create report with optimized function
+            wb = create_report_optimized(
+                st.session_state.merged_df,
+                st.session_state.mapping_df,
+                periods,
+                monthly_periods,
+                progress_callback=update_progress
+            )
+            progress_bar.progress(90)
+
+            # Save to bytes
+            progress_text.text("Preparing download...")
+            buffer = save_to_bytes(wb)
+            st.session_state.report_buffer = buffer
+            st.session_state.report_generated = True
+            progress_bar.progress(100)
+
+            progress_text.empty()
+            progress_bar.empty()
             st.success("✓ Report generated successfully!")
 
         except Exception as e:
