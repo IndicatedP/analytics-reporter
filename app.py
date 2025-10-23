@@ -126,7 +126,7 @@ if st.session_state.mapping_df is not None and st.session_state.reservations_df 
     if st.session_state.merged_df is None:
         with st.spinner("Merging data..."):
             try:
-                st.session_state.merged_df, _ = merge_data(
+                st.session_state.merged_df, st.session_state.mapping_df = merge_data(
                     st.session_state.mapping_df,
                     st.session_state.reservations_df
                 )
