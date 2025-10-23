@@ -134,18 +134,47 @@ def load_reservations_file(filepath: str) -> pd.DataFrame:
         raise DataLoaderError(f"Error loading reservations file: {str(e)}")
 
 
+def infer_category_from_name(apartment_name: str) -> str:
+    """
+    Try to infer apartment category from its name.
+
+    Args:
+        apartment_name: Name of the apartment
+
+    Returns:
+        Inferred category or 'unknown'
+    """
+    name_lower = str(apartment_name).lower()
+
+    # Keywords that might indicate room count
+    if 'studio' in name_lower:
+        return 'studio'
+    elif 'chambre' in name_lower or 'bedroom' in name_lower:
+        # Try to extract number
+        import re
+        numbers = re.findall(r'\d+', name_lower)
+        if numbers:
+            num = int(numbers[0])
+            if 1 <= num <= 6:
+                return f'{num} chambre' if num == 1 else f'{num} chambres'
+
+    # Default: assume 1 chambre if we can't determine
+    return '1 chambre'
+
+
 def merge_data(mapping: pd.DataFrame, reservations: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Merge reservation data with apartment mapping.
+    Auto-adds missing apartments to mapping with 'Unassigned' owner.
 
     Args:
         mapping: DataFrame with apartment mapping
         reservations: DataFrame with reservations
 
     Returns:
-        Tuple of (merged_reservations, mapping)
+        Tuple of (merged_reservations, updated_mapping)
         - merged_reservations: Reservations with owner and category info added
-        - mapping: Original mapping DataFrame (for reference)
+        - updated_mapping: Mapping DataFrame (may include auto-added apartments)
 
     Raises:
         DataLoaderError: If merge fails
@@ -162,9 +191,40 @@ def merge_data(mapping: pd.DataFrame, reservations: pd.DataFrame) -> Tuple[pd.Da
         unmatched = merged[merged['Proprio'].isna()]
         if len(unmatched) > 0:
             unmatched_apartments = unmatched['Nom du logement'].unique()
-            print(f"  ⚠ Warning: {len(unmatched)} reservations for {len(unmatched_apartments)} apartments not in mapping:")
-            for apt in unmatched_apartments[:5]:  # Show first 5
-                print(f"    - {apt}")
+            print(f"  ⚠ Found {len(unmatched)} reservations for {len(unmatched_apartments)} apartments not in mapping")
+            print(f"  📝 Auto-adding missing apartments to mapping...")
+
+            # Create new rows for missing apartments
+            new_apartments = []
+            for apt_name in unmatched_apartments:
+                # Try to infer category from apartment name
+                category = infer_category_from_name(apt_name)
+
+                new_apartments.append({
+                    'Nom du logement': apt_name,
+                    'Appart': apt_name,
+                    'Proprio': 'Unassigned',
+                    'catégorie': category,
+                    'CA référent': 'Location avec TVA',
+                    'commission': 0.2,
+                    'ménages': None
+                })
+
+            # Add new apartments to mapping
+            new_mapping_df = pd.DataFrame(new_apartments)
+            mapping = pd.concat([mapping, new_mapping_df], ignore_index=True)
+
+            # Re-merge with updated mapping
+            merged = reservations.merge(
+                mapping[['Nom du logement', 'Proprio', 'catégorie', 'commission']],
+                on='Nom du logement',
+                how='left'
+            )
+
+            print(f"  ✓ Added {len(unmatched_apartments)} apartments to 'Unassigned' owner")
+            for apt in unmatched_apartments[:5]:
+                cat = next((a['catégorie'] for a in new_apartments if a['Nom du logement'] == apt), 'unknown')
+                print(f"    - {apt} (category: {cat})")
             if len(unmatched_apartments) > 5:
                 print(f"    ... and {len(unmatched_apartments) - 5} more")
 

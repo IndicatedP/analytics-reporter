@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
 from modules.data_loader import load_mapping_file, load_reservations_file, merge_data, DataLoaderError
-from modules.period_generator import generate_periods, generate_monthly_periods
+from modules.period_generator import generate_periods, generate_monthly_periods, generate_weekday_weekend_periods
 from modules.report_generator_optimized import create_report_optimized, save_to_bytes
 
 
@@ -170,27 +170,46 @@ if st.session_state.reservations_df is not None:
     else:
         st.info(f"Selected period: {(end_date - start_date).days + 1} days")
 
-    # Period length selector
+    # Period configuration
     st.subheader("Period Configuration")
-    period_length = st.selectbox(
-        "Period length",
-        options=[1, 2, 3, 4],
-        index=2,  # Default to 3 days
-        format_func=lambda x: f"{x} day" if x == 1 else f"{x} days",
-        help="Choose how many days each period should cover in the report"
+
+    period_type = st.radio(
+        "Period type",
+        options=["Fixed days", "Weekday/Weekend split"],
+        index=0,
+        horizontal=True,
+        help="Choose how to divide the date range into periods"
     )
 
-    if period_length == 1:
-        st.info("Report will show daily availability")
-    else:
-        estimated_periods = ((end_date - start_date).days + 1) // period_length + 1
-        st.info(f"Report will show approximately {estimated_periods} periods of {period_length} days each")
+    if period_type == "Fixed days":
+        period_length = st.selectbox(
+            "Period length",
+            options=[1, 2, 3, 4],
+            index=2,  # Default to 3 days
+            format_func=lambda x: f"{x} day" if x == 1 else f"{x} days",
+            help="Choose how many days each period should cover"
+        )
+        period_mode = "fixed"
+
+        if period_length == 1:
+            st.info("📅 Report will show daily availability")
+        else:
+            estimated_periods = ((end_date - start_date).days + 1) // period_length + 1
+            st.info(f"📅 Report will show approximately {estimated_periods} periods of {period_length} days each")
+
+    else:  # Weekday/Weekend split
+        period_length = None
+        period_mode = "weekday_weekend"
+        st.info("📅 Report will show Monday-Thursday and Friday-Sunday periods")
+        st.caption("• Weekdays: Monday - Thursday (4 days)")
+        st.caption("• Weekends: Friday - Sunday (3 days)")
 
 else:
     st.warning("Please upload reservations file first to select date range")
     start_date = None
     end_date = None
     period_length = 3  # Default
+    period_mode = "fixed"
 
 st.divider()
 
@@ -199,7 +218,7 @@ st.header("Step 4: Generate Report")
 
 if st.session_state.merged_df is not None and start_date is not None and end_date is not None:
     # Add performance warning
-    if period_length == 1:
+    if period_mode == "fixed" and period_length == 1:
         total_days = (end_date - start_date).days + 1
         if total_days > 60:
             st.warning(f"⚠️ Daily periods for {total_days} days will create {total_days} columns. This may take 2-3 minutes to generate. Consider using 3-4 day periods for faster results.")
@@ -211,7 +230,12 @@ if st.session_state.merged_df is not None and start_date is not None and end_dat
             progress_text = st.empty()
 
             progress_text.text("Generating date periods...")
-            periods = generate_periods(start_date, end_date, period_days=period_length)
+
+            if period_mode == "weekday_weekend":
+                periods = generate_weekday_weekend_periods(start_date, end_date)
+            else:  # fixed
+                periods = generate_periods(start_date, end_date, period_days=period_length)
+
             monthly_periods = generate_monthly_periods(start_date, end_date)
             progress_bar.progress(20)
 

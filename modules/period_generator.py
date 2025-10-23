@@ -131,6 +131,56 @@ def generate_monthly_periods(start_date: date, end_date: date) -> List[MonthPeri
     return months
 
 
+def generate_weekday_weekend_periods(
+    start_date: date,
+    end_date: date
+) -> List[Period]:
+    """
+    Generate periods split by weekday (Mon-Thu) and weekend (Fri-Sun).
+
+    Args:
+        start_date: Start date of the range
+        end_date: End date of the range
+
+    Returns:
+        List of Period objects (alternating weekday and weekend periods)
+    """
+    if start_date > end_date:
+        raise ValueError("Start date must be before or equal to end date")
+
+    periods = []
+    current = start_date
+
+    while current <= end_date:
+        weekday = current.weekday()  # 0=Monday, 6=Sunday
+
+        if weekday <= 3:  # Monday-Thursday
+            # Weekday period: Monday to Thursday
+            # Find the next Thursday or end_date
+            days_until_thursday = 3 - weekday
+            period_end = min(current + timedelta(days=days_until_thursday), end_date)
+
+            period = Period(current, period_end)
+            periods.append(period)
+
+            # Move to next Friday
+            current = period_end + timedelta(days=1)
+
+        else:  # Friday-Sunday
+            # Weekend period: Friday to Sunday
+            # Find the next Sunday or end_date
+            days_until_sunday = 6 - weekday
+            period_end = min(current + timedelta(days=days_until_sunday), end_date)
+
+            period = Period(current, period_end)
+            periods.append(period)
+
+            # Move to next Monday
+            current = period_end + timedelta(days=1)
+
+    return periods
+
+
 def generate_all_periods(
     start_date: date,
     end_date: date,

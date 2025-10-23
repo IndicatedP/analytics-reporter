@@ -17,6 +17,7 @@ from modules.analytics import (
     calculate_category_averages,
     format_category_label
 )
+from modules.availability_summary import calculate_availability_summary
 
 
 class ReportCache:
@@ -176,6 +177,28 @@ def create_owner_sheet_optimized(
 
         ws.append(row_data)
 
+    # Add availability summary rows (count by category)
+    for category in categories:
+        row_data = [f"Disponibilité - {category}"]
+
+        for month_period, month_periods in grouped_periods:
+            for period in month_periods:
+                summary = calculate_availability_summary(owner_apartments, period, reservations)
+                cat_str = str(category)
+                if cat_str in summary:
+                    counts = summary[cat_str]
+                    value = f"{counts['disponible']}D/{counts['reserve']}R"
+                    if counts['surbooking'] > 0:
+                        value += f"/{counts['surbooking']}S"
+                    row_data.append(value)
+                else:
+                    row_data.append("")
+
+            # Monthly summary - skip for now
+            row_data.append("")
+
+        ws.append(row_data)
+
     # Add apartment rows
     for _, apartment_row in owner_apartments.iterrows():
         apartment_name = apartment_row['Nom du logement']
@@ -193,8 +216,9 @@ def create_owner_sheet_optimized(
 
         ws.append(row_data)
 
-    # Format sheet
-    format_sheet(ws, len(categories))
+    # Format sheet (price rows + availability rows)
+    num_summary_rows = len(categories) * 2  # Price rows + availability rows
+    format_sheet(ws, num_summary_rows)
 
 
 def create_all_apartments_sheet_optimized(
@@ -246,6 +270,28 @@ def create_all_apartments_sheet_optimized(
 
         ws.append(row_data)
 
+    # Add availability summary rows (count by category)
+    for category in categories:
+        row_data = [f"Disponibilité - {category}"]
+
+        for month_period, month_periods in grouped_periods:
+            for period in month_periods:
+                summary = calculate_availability_summary(all_apartments, period, reservations)
+                cat_str = str(category)
+                if cat_str in summary:
+                    counts = summary[cat_str]
+                    value = f"{counts['disponible']}D/{counts['reserve']}R"
+                    if counts['surbooking'] > 0:
+                        value += f"/{counts['surbooking']}S"
+                    row_data.append(value)
+                else:
+                    row_data.append("")
+
+            # Monthly summary - skip for now
+            row_data.append("")
+
+        ws.append(row_data)
+
     # Add apartment rows
     for _, apartment_row in all_apartments.iterrows():
         apartment_name = apartment_row['Nom du logement']
@@ -263,8 +309,9 @@ def create_all_apartments_sheet_optimized(
 
         ws.append(row_data)
 
-    # Format sheet
-    format_sheet(ws, len(categories))
+    # Format sheet (price rows + availability rows)
+    num_summary_rows = len(categories) * 2  # Price rows + availability rows
+    format_sheet(ws, num_summary_rows)
 
 
 def format_sheet(ws, num_summary_rows: int):
