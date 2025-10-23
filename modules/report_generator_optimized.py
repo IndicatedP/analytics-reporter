@@ -61,6 +61,7 @@ def create_report_optimized(
     periods: List[Period],
     monthly_periods: List[MonthPeriod],
     output_path: str = None,
+    merge_duplicates: bool = True,
     progress_callback=None
 ) -> openpyxl.Workbook:
     """
@@ -72,6 +73,7 @@ def create_report_optimized(
         periods: List of regular periods
         monthly_periods: List of monthly periods
         output_path: Optional path to save the workbook
+        merge_duplicates: If True, merge duplicate apartment lines (default True)
         progress_callback: Function to call with progress updates (current, total, message)
 
     Returns:
@@ -99,7 +101,7 @@ def create_report_optimized(
             progress_callback(current_sheet, total_sheets, f"Creating sheet: {owner}")
 
         create_owner_sheet_optimized(
-            wb, owner, mapping, merged_reservations, periods, monthly_periods, cache
+            wb, owner, mapping, merged_reservations, periods, monthly_periods, cache, merge_duplicates
         )
 
     # Create "All Apartments" sheet
@@ -108,7 +110,7 @@ def create_report_optimized(
         progress_callback(current_sheet, total_sheets, "Creating 'All Apartments' sheet")
 
     create_all_apartments_sheet_optimized(
-        wb, mapping, merged_reservations, periods, monthly_periods, cache
+        wb, mapping, merged_reservations, periods, monthly_periods, cache, merge_duplicates
     )
 
     # Save if output path provided
@@ -125,7 +127,8 @@ def create_owner_sheet_optimized(
     reservations: pd.DataFrame,
     periods: List[Period],
     monthly_periods: List[MonthPeriod],
-    cache: ReportCache
+    cache: ReportCache,
+    merge_duplicates: bool = True
 ):
     """Create a sheet for a specific owner with caching"""
     # Create sheet
@@ -200,8 +203,15 @@ def create_owner_sheet_optimized(
         ws.append(row_data)
 
     # Add apartment rows
-    for _, apartment_row in owner_apartments.iterrows():
-        apartment_name = apartment_row['Nom du logement']
+    if merge_duplicates:
+        # Get unique apartment names (deduplicate)
+        unique_apartments = owner_apartments['Nom du logement'].unique()
+        apartments_to_process = sorted(unique_apartments)
+    else:
+        # Process all rows separately (keep duplicates)
+        apartments_to_process = owner_apartments['Nom du logement'].tolist()
+
+    for apartment_name in apartments_to_process:
         row_data = [apartment_name]
 
         for month_period, month_periods in grouped_periods:
@@ -227,7 +237,8 @@ def create_all_apartments_sheet_optimized(
     reservations: pd.DataFrame,
     periods: List[Period],
     monthly_periods: List[MonthPeriod],
-    cache: ReportCache
+    cache: ReportCache,
+    merge_duplicates: bool = True
 ):
     """Create all apartments sheet with caching"""
     ws = wb.create_sheet('All Apartments')
@@ -293,8 +304,15 @@ def create_all_apartments_sheet_optimized(
         ws.append(row_data)
 
     # Add apartment rows
-    for _, apartment_row in all_apartments.iterrows():
-        apartment_name = apartment_row['Nom du logement']
+    if merge_duplicates:
+        # Get unique apartment names (deduplicate)
+        unique_apartments = all_apartments['Nom du logement'].unique()
+        apartments_to_process = sorted(unique_apartments)
+    else:
+        # Process all rows separately (keep duplicates)
+        apartments_to_process = all_apartments['Nom du logement'].tolist()
+
+    for apartment_name in apartments_to_process:
         row_data = [apartment_name]
 
         for month_period, month_periods in grouped_periods:

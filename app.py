@@ -204,12 +204,26 @@ if st.session_state.reservations_df is not None:
         st.caption("• Weekdays: Monday - Thursday (4 days)")
         st.caption("• Weekends: Friday - Sunday (3 days)")
 
+    # Merge duplicate apartments option
+    st.subheader("Apartment Display")
+    merge_duplicates = st.checkbox(
+        "Merge duplicate apartment lines",
+        value=True,
+        help="Some apartments have multiple lines in the mapping (for overbooking). Enable this to show each apartment only once and treat multiple reservations as overbooking."
+    )
+
+    if merge_duplicates:
+        st.info("✓ Duplicate apartments will be merged. Multiple reservations = Surbooking")
+    else:
+        st.info("Each apartment line will appear separately in the report")
+
 else:
     st.warning("Please upload reservations file first to select date range")
     start_date = None
     end_date = None
     period_length = 3  # Default
     period_mode = "fixed"
+    merge_duplicates = True  # Default
 
 st.divider()
 
@@ -256,6 +270,7 @@ if st.session_state.merged_df is not None and start_date is not None and end_dat
                 st.session_state.mapping_df,
                 periods,
                 monthly_periods,
+                merge_duplicates=merge_duplicates,
                 progress_callback=update_progress
             )
             progress_bar.progress(90)
